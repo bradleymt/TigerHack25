@@ -64,6 +64,7 @@ export class Engine {
   
   // Grid visibility toggle
   private showGrid = false;
+  private needsOccupiedCellsRedraw = false;
   
   // Planets for tracking
   private planets: PlanetSprite[] = [];
@@ -226,8 +227,10 @@ export class Engine {
       // Update grid visibility
       if (this.showGrid) {
         this.renderer.showGrid();
+        this.needsOccupiedCellsRedraw = true;
       } else {
         this.renderer.hideGrid();
+        this.needsOccupiedCellsRedraw = true;
       }
     });
 
@@ -445,10 +448,11 @@ export class Engine {
             this.TILE_SIZE,
             this.TILE_SIZE
           );
-          this.highlightGraphic.fill({ color: 0xff8800, alpha: 0.3 });
         }
       }
     }
+    
+    this.highlightGraphic.fill({ color: 0xff8800, alpha: 0.3 });
   }
 
   start() {
@@ -767,10 +771,16 @@ export class Engine {
     this.world.x = Math.max(minX, Math.min(maxX, this.world.x));
     this.world.y = Math.max(minY, Math.min(maxY, this.world.y));
 
-    if (prevZoom !== this.zoom) this.renderer.setZoom(this.zoom);
+    if (prevZoom !== this.zoom) {
+      this.renderer.setZoom(this.zoom);
+      this.needsOccupiedCellsRedraw = true;
+    }
 
-    // Draw orange highlights for occupied cells
-    this.drawOccupiedCells();
+    // Draw orange highlights for occupied cells (only when needed)
+    if (this.needsOccupiedCellsRedraw) {
+      this.drawOccupiedCells();
+      this.needsOccupiedCellsRedraw = false;
+    }
 
     // Update all sprites (only update center cells to avoid duplicates)
     for (let y = 0; y < this.GRID_HEIGHT; y++) {
@@ -881,6 +891,9 @@ export class Engine {
       this.planets.push(sprite);
     }
 
+    // Mark that occupied cells need redrawing
+    this.needsOccupiedCellsRedraw = true;
+
     return true;
   }
 
@@ -917,6 +930,9 @@ export class Engine {
         this.planets.splice(index, 1);
       }
     }
+
+    // Mark that occupied cells need redrawing
+    this.needsOccupiedCellsRedraw = true;
 
     return true;
   }
@@ -970,6 +986,9 @@ export class Engine {
     // Update sprite position
     const worldPos = this.gridToWorld(toX, toY);
     sprite.getDisplay().position.set(worldPos.x, worldPos.y);
+
+    // Mark that occupied cells need redrawing
+    this.needsOccupiedCellsRedraw = true;
 
     return true;
   }
