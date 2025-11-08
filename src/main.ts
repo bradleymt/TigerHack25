@@ -1,4 +1,4 @@
-import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
+import { Application, Assets, Sprite, Graphics, Container, Text } from "pixi.js";
 
 (async () => {
   // Create a new application
@@ -189,20 +189,261 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
   }, {passive: false});
 
   //Panning functionality
-  let isDragging = false;
-  let dragStart = {x: 0, y: 0};
+  let isPanning = false;
+  let panStart = {x: 0, y: 0};
 
-  app.canvas.addEventListener("mousedown", (e) => {
-    isDragging = true;
-    dragStart.x = e.clientX - world.x;
-    dragStart.y = e.clientY - world.y;
+  // Create UI container (not affected by world zoom/pan)
+  const uiContainer = new Container();
+  app.stage.addChild(uiContainer);
+
+  // Create toolbar
+  const toolbar = new Container();
+  toolbar.position.set(10, app.screen.height - 100);
+  uiContainer.addChild(toolbar);
+
+  // Toolbar background
+  const toolbarBg = new Graphics();
+  toolbarBg.rect(0, 0, 200, 90);
+  toolbarBg.fill({ color: 0x222222, alpha: 0.9 });
+  toolbarBg.stroke({ width: 2, color: 0x666666 });
+  toolbar.addChild(toolbarBg);
+
+  // Create bunny button in toolbar
+  const toolbarBunny = new Sprite(texture);
+  toolbarBunny.anchor.set(0.5);
+  toolbarBunny.position.set(45, 45);
+  toolbarBunny.scale.set(0.5);
+  toolbarBunny.eventMode = 'static';
+  toolbarBunny.cursor = 'pointer';
+  toolbar.addChild(toolbarBunny);
+
+  // Create trash can
+  const trashCan = new Graphics();
+  trashCan.rect(0, 0, 80, 80);
+  trashCan.fill({ color: 0x880000, alpha: 0.8 });
+  trashCan.stroke({ width: 2, color: 0xff0000 });
+  trashCan.position.set(110, 5);
+  toolbar.addChild(trashCan);
+  
+  // Trash can icon (simple X)
+  const trashIcon = new Graphics();
+  trashIcon.moveTo(20, 20);
+  trashIcon.lineTo(60, 60);
+  trashIcon.moveTo(60, 20);
+  trashIcon.lineTo(20, 60);
+  trashIcon.stroke({ width: 4, color: 0xffffff });
+  trashIcon.position.set(110, 5);
+  toolbar.addChild(trashIcon);
+
+  // Dragging state
+  let previewSprite: Sprite | null = null;
+  let isDraggingFromToolbar = false;
+  let isDraggingSprite = false;
+  let draggedSpriteGridPos: { x: number; y: number } | null = null;
+  let isOverTrash = false;
+
+  // Highlight graphic for valid/invalid placement
+  const highlightGraphic = new Graphics();
+  world.addChild(highlightGraphic);
+
+  // Mouse down on toolbar bunny - start drag
+  toolbarBunny.on('pointerdown', (e) => {
+    e.stopPropagation();
+    isDraggingFromToolbar = true;
+    
+    // Create preview sprite
+    previewSprite = new Sprite(texture);
+    previewSprite.anchor.set(0.5);
+    previewSprite.alpha = 0.7;
+    world.addChild(previewSprite);
   });
 
-  app.canvas.addEventListener("mouseup", () => (isDragging = false));
+  // Global mouse handlers
+  app.canvas.addEventListener("mousedown", (e) => {
+    if (!isDraggingFromToolbar) {
+      // Check if clicking on a sprite in the grid
+      const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
+      
+      if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+        const cell = grid[gridY][gridX];
+        if (cell !== null) {
+          // Start dragging this sprite
+          isDraggingSprite = true;
+          draggedSpriteGridPos = { x: gridX, y: gridY };
+          previewSprite = cell.sprite;
+          previewSprite.alpha = 0.7;
+          
+          // Don't remove from grid yet, wait for drop
+          console.log(`Picked up ${cell.type} from (${gridX}, ${gridY})`);
+          return;
+        }
+      }
+      
+      // If not clicking a sprite, start panning
+      isPanning = true;
+      panStart.x = e.clientX - world.x;
+      panStart.y = e.clientY - world.y;
+    }
+  });
+
+  app.canvas.addEventListener("mouseup", (e) => {
+    if (isDraggingFromToolbar && previewSprite) {
+      // Try to place the sprite
+      const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
+      
+      if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+        if (grid[gridY][gridX] === null) {
+          // Place the sprite
+          const newBunny = new Sprite(texture);
+          newBunny.anchor.set(0.5);
+          placeSprite(gridX, gridY, newBunny, "bunny");
+          console.log(`Placed bunny at grid (${gridX}, ${gridY})`);
+        } else {
+          console.log("Cell already occupied");
+        }
+      }
+      
+      // Clean up preview
+      world.removeChild(previewSprite);
+      previewSprite = null;
+      highlightGraphic.clear();
+    } else if (isDraggingSprite && draggedSpriteGridPos && previewSprite) {
+      // Check if over trash
+      if (isOverTrash) {
+        // Delete the sprite
+        console.log(`Deleted sprite from (${draggedSpriteGridPos.x}, ${draggedSpriteGridPos.y})`);
+        removeSprite(draggedSpriteGridPos.x, draggedSpriteGridPos.y);
+        previewSprite = null;
+      } else {
+        // Try to move the sprite
+        const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
+        
+        if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+          if (gridX === draggedSpriteGridPos.x && gridY === draggedSpriteGridPos.y) {
+            // Dropped in same spot, just reset
+            previewSprite.alpha = 1;
+          } else if (grid[gridY][gridX] === null) {
+            // Move to new position
+            moveSprite(draggedSpriteGridPos.x, draggedSpriteGridPos.y, gridX, gridY);
+            console.log(`Moved sprite from (${draggedSpriteGridPos.x}, ${draggedSpriteGridPos.y}) to (${gridX}, ${gridY})`);
+            previewSprite.alpha = 1;
+          } else {
+            // Can't move there, return to original position
+            console.log("Can't move there - cell occupied");
+            previewSprite.alpha = 1;
+          }
+        } else {
+          // Outside grid, return to original position
+          previewSprite.alpha = 1;
+        }
+      }
+      
+      highlightGraphic.clear();
+      draggedSpriteGridPos = null;
+      previewSprite = null;
+    }
+    
+    isDraggingFromToolbar = false;
+    isDraggingSprite = false;
+    isPanning = false;
+    isOverTrash = false;
+  });
+
+  // Click handler for grid info (only when not dragging)
+  app.canvas.addEventListener("click", (e) => {
+    if (!isDraggingFromToolbar) {
+      const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
+      console.log("Clicked grid cell:", gridX, gridY);
+      
+      // Check if click is within grid bounds
+      if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+        const cell = grid[gridY][gridX];
+        if (cell !== null) {
+          console.log(`Cell (${gridX}, ${gridY}) contains: ${cell.type}`);
+        } else {
+          console.log(`Cell (${gridX}, ${gridY}) is empty`);
+        }
+      }
+    }
+  });
+
   app.canvas.addEventListener("mousemove", (e) => {
-    if (isDragging) {
-      world.x = e.clientX - dragStart.x;
-      world.y = e.clientY - dragStart.y;
+    if (isDraggingFromToolbar && previewSprite) {
+      // Update preview position
+      const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
+      
+      if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+        const worldPos = gridToWorld(gridX, gridY);
+        previewSprite.position.set(worldPos.x, worldPos.y);
+        
+        // Draw highlight
+        highlightGraphic.clear();
+        const isOccupied = grid[gridY][gridX] !== null;
+        const color = isOccupied ? 0xff0000 : 0x00ff00;
+        highlightGraphic.rect(
+          gridX * TILE_SIZE,
+          gridY * TILE_SIZE,
+          TILE_SIZE,
+          TILE_SIZE
+        );
+        highlightGraphic.fill({ color, alpha: 0.3 });
+      }
+    } else if (isDraggingSprite && previewSprite && draggedSpriteGridPos) {
+      // Update dragged sprite position
+      const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
+      
+      // Check if over trash can
+      const trashBounds = {
+        x: toolbar.x + 110,
+        y: toolbar.y + 5,
+        width: 80,
+        height: 80
+      };
+      
+      isOverTrash = (
+        e.clientX >= trashBounds.x &&
+        e.clientX <= trashBounds.x + trashBounds.width &&
+        e.clientY >= trashBounds.y &&
+        e.clientY <= trashBounds.y + trashBounds.height
+      );
+      
+      if (isOverTrash) {
+        // Highlight trash can
+        highlightGraphic.clear();
+        trashCan.clear();
+        trashCan.rect(0, 0, 80, 80);
+        trashCan.fill({ color: 0xff0000, alpha: 0.9 });
+        trashCan.stroke({ width: 3, color: 0xffff00 });
+        trashCan.position.set(110, 5);
+      } else {
+        // Reset trash can
+        trashCan.clear();
+        trashCan.rect(0, 0, 80, 80);
+        trashCan.fill({ color: 0x880000, alpha: 0.8 });
+        trashCan.stroke({ width: 2, color: 0xff0000 });
+        trashCan.position.set(110, 5);
+        
+        // Show grid highlight
+        if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
+          const worldPos = gridToWorld(gridX, gridY);
+          previewSprite.position.set(worldPos.x, worldPos.y);
+          
+          highlightGraphic.clear();
+          const isOccupied = grid[gridY][gridX] !== null && 
+                            (gridX !== draggedSpriteGridPos.x || gridY !== draggedSpriteGridPos.y);
+          const color = isOccupied ? 0xff0000 : 0x00ff00;
+          highlightGraphic.rect(
+            gridX * TILE_SIZE,
+            gridY * TILE_SIZE,
+            TILE_SIZE,
+            TILE_SIZE
+          );
+          highlightGraphic.fill({ color, alpha: 0.3 });
+        }
+      }
+    } else if (isPanning) {
+      world.x = e.clientX - panStart.x;
+      world.y = e.clientY - panStart.y;
     }
   });
 
@@ -221,22 +462,6 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
       y: gridY * TILE_SIZE + TILE_SIZE / 2
     };
   }
-
-  //Function to see what grid square is clicked
-  app.canvas.addEventListener("click", (e) => {
-    const { gridX, gridY } = screenToGrid(e.clientX, e.clientY);
-    console.log("Clicked grid cell:", gridX, gridY);
-    
-    // Check if click is within grid bounds
-    if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
-      const cell = grid[gridY][gridX];
-      if (cell !== null) {
-        console.log(`Cell contains: ${cell.type}`);
-      } else {
-        console.log("Cell is empty");
-      }
-    }
-  });
 
   //Ticker
   app.ticker.add((time) => {
@@ -277,6 +502,8 @@ import { Application, Assets, Sprite, Graphics, Container } from "pixi.js";
     // Keep bunny at same grid position, just recenter view
     world.x = app.screen.width / 2 - bunny.x * zoom;
     world.y = app.screen.height / 2 - bunny.y * zoom;
+    // Update toolbar position
+    toolbar.position.set(10, app.screen.height - 100);
   });
 
   // Center the world view on the bunny at startup
