@@ -68,26 +68,7 @@ export class Engine {
     this.GRID_WIDTH = Math.ceil(app.screen.width / (this.TILE_SIZE * MIN_ZOOM));
     this.GRID_HEIGHT = Math.ceil(app.screen.height / (this.TILE_SIZE * MIN_ZOOM));
     
-    // Create world container
-    this.world = new Container();
-    app.stage.addChild(this.world);
-    
-    // Initialize grid
-    this.grid = [];
-    for (let y = 0; y < this.GRID_HEIGHT; y++) {
-      const row: GridCell[] = [];
-      for (let x = 0; x < this.GRID_WIDTH; x++) {
-        row.push({ gravity: 0, sprite: null, occupied: false });
-      }
-      this.grid.push(row);
-    }
-    
-    // Create renderer
-    const gridGraphics = new Graphics();
-    this.world.addChild(gridGraphics);
-    this.renderer = new Renderer(gridGraphics, this.TILE_SIZE, this.GRID_WIDTH, this.GRID_HEIGHT);
-    
-    // Create stars
+    // Create stars FIRST (background layer)
     this.starArray = [];
     const NUM_STARS = 100;
     for (let i = 0; i < NUM_STARS; i++) {
@@ -108,6 +89,25 @@ export class Engine {
         alphaDir: Math.random() < 0.5 ? 0.01 : -0.01,
       });
     }
+    
+    // Create world container (goes on top of stars)
+    this.world = new Container();
+    app.stage.addChild(this.world);
+    
+    // Initialize grid
+    this.grid = [];
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      const row: GridCell[] = [];
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        row.push({ gravity: 0, sprite: null, occupied: false });
+      }
+      this.grid.push(row);
+    }
+    
+    // Create renderer
+    const gridGraphics = new Graphics();
+    this.world.addChild(gridGraphics);
+    this.renderer = new Renderer(gridGraphics, this.TILE_SIZE, this.GRID_WIDTH, this.GRID_HEIGHT);
 
     // Create UI container (stays on top, doesn't zoom)
     this.uiContainer = new Container();
@@ -307,6 +307,26 @@ export class Engine {
   hideTooltip() {
     if (this.tooltipBg) this.tooltipBg.visible = false;
     if (this.tooltipText) this.tooltipText.visible = false;
+  }
+
+  // Draw orange highlights for occupied cells (development)
+  drawOccupiedCells() {
+    this.highlightGraphic.clear();
+    
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        const cell = this.grid[y][x];
+        if (cell.occupied) {
+          this.highlightGraphic.rect(
+            x * this.TILE_SIZE,
+            y * this.TILE_SIZE,
+            this.TILE_SIZE,
+            this.TILE_SIZE
+          );
+          this.highlightGraphic.fill({ color: 0xff8800, alpha: 0.3 });
+        }
+      }
+    }
   }
 
   start() {
@@ -621,6 +641,9 @@ export class Engine {
     this.world.y = Math.max(minY, Math.min(maxY, this.world.y));
 
     if (prevZoom !== this.zoom) this.renderer.setZoom(this.zoom);
+
+    // Draw orange highlights for occupied cells
+    this.drawOccupiedCells();
 
     // Update all sprites (only update center cells to avoid duplicates)
     for (let y = 0; y < this.GRID_HEIGHT; y++) {

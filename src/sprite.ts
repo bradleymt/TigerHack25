@@ -83,7 +83,7 @@ export class PlanetSprite extends GameSprite {
   ) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, name, "Planet", 1000, 1000, 12, true);
+    super(sprite, name, "Planet", 1000, 1000, 15, true);
     this.rotationSpeed = rotationSpeed;
     this.centerX = centerX;
     this.centerY = centerY;

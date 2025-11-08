@@ -17,7 +17,7 @@ export const PLANET_TILES = 28;
 
 // Collision radii (in tiles)
 export const ASTEROID_RADIUS = 6;
-export const PLANET_RADIUS = 12;
+export const PLANET_RADIUS = 15;
 export const PLANET_DETECTION_DISTANCE = 14;
 
 // Rotation speed ranges
