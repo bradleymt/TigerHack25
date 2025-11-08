@@ -60,7 +60,7 @@ export class Engine {
   private gridToggleText!: Text;
   
   // Grid visibility toggle
-  private showGrid = true;
+  private showGrid = false;
   
   // Planets for tracking
   private planets: PlanetSprite[] = [];
@@ -122,8 +122,9 @@ export class Engine {
     this.highlightGraphic = new Graphics();
     this.world.addChild(this.highlightGraphic);
 
-    // initialize renderer zoom state
+    // initialize renderer zoom state (but don't draw grid - starts hidden)
     this.renderer.setZoom(this.zoom);
+    this.renderer.hideGrid(); // Start with grid hidden
   }
 
   // Initialize toolbar with bunny sprite
@@ -173,15 +174,15 @@ export class Engine {
     // Grid toggle button (top-right corner)
     this.gridToggleButton = new Graphics();
     this.gridToggleButton.rect(0, 0, 120, 40);
-    this.gridToggleButton.fill({ color: 0x00aa00, alpha: 0.8 });
-    this.gridToggleButton.stroke({ width: 2, color: 0x00ff00 });
+    this.gridToggleButton.fill({ color: 0xaa0000, alpha: 0.8 });
+    this.gridToggleButton.stroke({ width: 2, color: 0xff0000 });
     this.gridToggleButton.position.set(this.app.screen.width - 130, 10);
     this.gridToggleButton.eventMode = "static";
     this.gridToggleButton.cursor = "pointer";
     this.uiContainer.addChild(this.gridToggleButton);
 
     this.gridToggleText = new Text({
-      text: "Grid: ON",
+      text: "Grid: OFF",
       style: { fontSize: 14, fill: 0xffffff, fontWeight: "bold" },
     });
     this.gridToggleText.anchor.set(0.5);
@@ -207,7 +208,7 @@ export class Engine {
       
       // Update grid visibility
       if (this.showGrid) {
-        this.renderer.setZoom(this.zoom);
+        this.renderer.showGrid();
       } else {
         this.renderer.hideGrid();
       }

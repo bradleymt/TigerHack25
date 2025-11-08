@@ -6,6 +6,7 @@ export class Renderer {
   private GRID_WIDTH: number;
   private GRID_HEIGHT: number;
   private zoom = 1;
+  private gridVisible = true;
 
   constructor(
     gridGraphics: Graphics,
@@ -21,10 +22,13 @@ export class Renderer {
 
   setZoom(z: number) {
     this.zoom = z;
-    this.drawGrid();
+    if (this.gridVisible) {
+      this.drawGrid();
+    }
   }
 
   drawGrid() {
+    this.gridVisible = true;
     const g = this.gridGraphics;
     g.clear();
 
@@ -45,7 +49,13 @@ export class Renderer {
     g.stroke({ width: lineWidth, color: 0x333333, alpha: 0.5 });
   }
 
+  showGrid() {
+    this.gridVisible = true;
+    this.drawGrid();
+  }
+
   hideGrid() {
+    this.gridVisible = false;
     this.gridGraphics.clear();
   }
 }
