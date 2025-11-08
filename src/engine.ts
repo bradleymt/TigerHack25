@@ -398,9 +398,13 @@ export class Engine {
 
     const lines = [
       `Name: ${sprite.name}`,
-      `Health: ${sprite.health}`,
       `Type: ${sprite.type}`,
     ];
+
+    // Only show health if the sprite has health (not black holes)
+    if (sprite.health > 0) {
+      lines.splice(1, 0, `Health: ${sprite.health}`);
+    }
 
     this.tooltipText.text = lines.join("\n");
 
