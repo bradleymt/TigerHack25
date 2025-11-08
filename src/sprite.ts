@@ -69,10 +69,14 @@ export class TurretSprite extends GameSprite {
 export class AsteroidSprite extends GameSprite {
   private rotationSpeed: number;
 
-  constructor(texture: Texture, rotationSpeed: number) {
+  constructor(texture: Texture, rotationSpeed: number, scale: number = 1) {
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5);
-    super(sprite, "Asteroid", "Debris", 500, 500, 6, true);
+    // Scale to ASTEROID_TILES (12 tiles = 192px) then multiply by random scale
+    const baseScale = (16 * 12) / texture.width; // TILE_SIZE * ASTEROID_TILES / texture.width
+    sprite.scale.set(baseScale * scale);
+    // Round radius to ensure it's always an integer
+    super(sprite, "Asteroid", "Debris", 500, 500, Math.round(6 * scale), true);
     this.rotationSpeed = rotationSpeed;
   }
 
@@ -133,7 +137,7 @@ export class PlanetSprite extends GameSprite {
       container.addChild(shield);
     }
     
-    super(container, name, "Planet", 1000, 1000, 14, true);
+    super(container, name, "Planet", 1000, 1000, 25, true);
     
     this.shield = shield;
     this.rotationSpeed = rotationSpeed;
@@ -255,6 +259,7 @@ export function createSprite(
     centerY?: number;
     shieldTexture?: Texture;
     initialRotation?: number;
+    scale?: number;
   }
 ): GameSprite {
   if (kind === "bunny") {
@@ -277,7 +282,8 @@ export function createSprite(
     }
     return new AsteroidSprite(
       options.texture,
-      options.rotationSpeed || 0.005
+      options.rotationSpeed || 0.005,
+      options.scale || 1
     );
   }
 

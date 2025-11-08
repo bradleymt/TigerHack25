@@ -14,7 +14,6 @@ import {
   ASTEROID_ROTATION_MAX,
   PLANET_ROTATION_MIN,
   PLANET_ROTATION_MAX,
-  ASTEROID_TILES,
   BLACK_HOLE_TILES,
   PLANET_TILES,
   TURRET_TILES,
@@ -264,7 +263,6 @@ export class Engine {
   // Generate asteroids and planets
   generateWorld(asteroidTexture: Texture, planetTexture: Texture, shieldTexture?: Texture, blackHoleTexture?: Texture) {
     // Calculate scales based on TILE_SIZE
-    const asteroidScale = (this.TILE_SIZE * ASTEROID_TILES) / asteroidTexture.width;
     const blackHoleScale = blackHoleTexture ? (this.TILE_SIZE * BLACK_HOLE_TILES) / blackHoleTexture.width : 1;
     const planetScale = (this.TILE_SIZE * PLANET_TILES) / planetTexture.width;
 
@@ -284,11 +282,14 @@ export class Engine {
             ASTEROID_ROTATION_MIN) *
           (Math.random() < 0.5 ? 1 : -1);
 
+        // Random scale between 0.5 and 1.5
+        const randomScale = 0.5 + Math.random();
+
         const asteroid = createSprite("asteroid", {
           texture: asteroidTexture,
           rotationSpeed,
+          scale: randomScale,
         });
-        (asteroid.getDisplay() as Sprite).scale.set(asteroidScale);
 
         this.placeSprite(x, y, asteroid);
         placed++;

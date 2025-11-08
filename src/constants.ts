@@ -15,14 +15,14 @@ export const NUM_BLACK_HOLES = 3;
 export const BUNNY_TILES = 2;
 export const TURRET_TILES = 3;
 export const ASTEROID_TILES = 12;
-export const BLACK_HOLE_TILES = 48; // 4x asteroid size
-export const PLANET_TILES = 28;
+export const BLACK_HOLE_TILES = 40; // Reduced proportionally
+export const PLANET_TILES = 50; // 1.25x black hole size
 
 // Collision radii (in tiles)
 export const ASTEROID_RADIUS = 6;
-export const BLACK_HOLE_RADIUS = 24; // 4x asteroid radius
-export const PLANET_RADIUS = 14;
-export const PLANET_DETECTION_DISTANCE = 14;
+export const BLACK_HOLE_RADIUS = 20; // Reduced proportionally
+export const PLANET_RADIUS = 25; // 1.25x black hole radius
+export const PLANET_DETECTION_DISTANCE = 25;
 
 // Rotation speed ranges
 export const ASTEROID_ROTATION_MIN = 0.002;
