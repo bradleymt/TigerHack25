@@ -119,7 +119,7 @@ In the distant future, humanity has colonized space. But even among the stars, n
 
 ## License
 
-This project was created for TigerHack 2025.
+This project was created for TigerHacks 2025. Check License for more info.
 
 ## Future Enhancements
 
