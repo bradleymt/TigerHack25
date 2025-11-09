@@ -2,7 +2,7 @@
 
 > *A turn-based strategy artillery game where petty neighbors escalate their dispute to orbital warfare*
 
-🎮 **[Play Now at stellar-spite.us](https://stellar-spite.us)**
+**[Play Now at stellar-spite.us](https://stellar-spite.us)**
 
 ![Main Menu](./screenshots/mainmenu.png)
 
