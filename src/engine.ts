@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Ticker, Text, Sprite, Texture } from "pixi.js";
 import { Renderer } from "./renderer";
-import { GameSprite, GridCell, Grid, PlanetSprite, ExplosionSprite, createSprite } from "./sprite";
+import { GameSprite, GridCell, Grid, PlanetSprite, ExplosionSprite, createSprite, applyGravityField } from "./sprite";
 import { SoundManager } from "./soundManager";
 import {
   MIN_ZOOM,
@@ -49,14 +49,10 @@ export class Engine {
   // Drag/drop state
   private previewSprite: Sprite | null = null;
   private isDraggingFromToolbar = false;
-  private isDraggingSprite = false;
-  private draggedSpriteGridPos: { x: number; y: number } | null = null;
-  private isOverTrash = false;
   private selectedTexture: Texture | null = null;
   
   // Toolbar elements
   private trashCan!: Graphics;
-  private bunnyTexture: Texture | null = null;
   private turretTexture: Texture | null = null;
   private explosionTexture: Texture | null = null;
   private gridToggleButton!: Graphics;
@@ -65,6 +61,12 @@ export class Engine {
   // Grid visibility toggle
   private showGrid = false;
   private needsOccupiedCellsRedraw = false;
+  
+  // Bunny launch system
+  private isLaunching = false;
+  private launchStartPos: { x: number; y: number } | null = null;
+  private launchSprite: GameSprite | null = null;
+  private aimerGraphics!: Graphics;
   
   // Planets for tracking
   private planets: PlanetSprite[] = [];
@@ -115,7 +117,7 @@ export class Engine {
     for (let y = 0; y < this.GRID_HEIGHT; y++) {
       const row: GridCell[] = [];
       for (let x = 0; x < this.GRID_WIDTH; x++) {
-        row.push({ gravity: 0, sprite: null, occupied: false });
+        row.push({ gravity: { ax: 0, ay: 0 }, sprite: null, occupied: false });
       }
       this.grid.push(row);
     }
@@ -124,6 +126,10 @@ export class Engine {
     const gridGraphics = new Graphics();
     this.world.addChild(gridGraphics);
     this.renderer = new Renderer(gridGraphics, this.TILE_SIZE, this.GRID_WIDTH, this.GRID_HEIGHT);
+
+    // Create aimer graphics for trajectory preview
+    this.aimerGraphics = new Graphics();
+    this.world.addChild(this.aimerGraphics);
 
     // Create UI container (stays on top, doesn't zoom)
     this.uiContainer = new Container();
@@ -140,7 +146,6 @@ export class Engine {
 
   // Initialize toolbar with bunny and turret sprites
   initToolbar(bunnyTexture: Texture, turretTexture: Texture) {
-    this.bunnyTexture = bunnyTexture;
     this.turretTexture = turretTexture;
     const BUNNY_TILES = 1;
 
@@ -195,31 +200,31 @@ export class Engine {
 
     // Grid toggle button (top-right corner)
     this.gridToggleButton = new Graphics();
-    this.gridToggleButton.rect(0, 0, 120, 40);
+    this.gridToggleButton.rect(0, 0, 160, 40);
     this.gridToggleButton.fill({ color: 0xaa0000, alpha: 0.8 });
     this.gridToggleButton.stroke({ width: 2, color: 0xff0000 });
-    this.gridToggleButton.position.set(this.app.screen.width - 130, 10);
+    this.gridToggleButton.position.set(this.app.screen.width - 170, 10);
     this.gridToggleButton.eventMode = "static";
     this.gridToggleButton.cursor = "pointer";
     this.uiContainer.addChild(this.gridToggleButton);
 
     this.gridToggleText = new Text({
-      text: "Grid: OFF",
+      text: "Graphic Content: OFF",
       style: { fontSize: 14, fill: 0xffffff, fontWeight: "bold" },
     });
     this.gridToggleText.anchor.set(0.5);
-    this.gridToggleText.position.set(60, 20);
+    this.gridToggleText.position.set(80, 20);
     this.gridToggleButton.addChild(this.gridToggleText);
 
     // Grid toggle click handler
     this.gridToggleButton.on("pointerdown", (e: any) => {
       e.stopPropagation();
       this.showGrid = !this.showGrid;
-      this.gridToggleText.text = this.showGrid ? "Grid: ON" : "Grid: OFF";
+      this.gridToggleText.text = this.showGrid ? "Graphic Content: ON" : "Graphic Content: OFF";
       
       // Update button color
       this.gridToggleButton.clear();
-      this.gridToggleButton.rect(0, 0, 120, 40);
+      this.gridToggleButton.rect(0, 0, 160, 40);
       if (this.showGrid) {
         this.gridToggleButton.fill({ color: 0x00aa00, alpha: 0.8 });
         this.gridToggleButton.stroke({ width: 2, color: 0x00ff00 });
@@ -305,6 +310,10 @@ export class Engine {
         (planet1.getDisplay() as Container).scale.set(planetScale);
 
         this.placeSprite(x, y, planet1);
+        
+        // Create gravity field for planet
+        applyGravityField(this.grid, x, y, 35, 0.5);
+        
         break;
       }
     }
@@ -328,6 +337,10 @@ export class Engine {
         (planet2.getDisplay() as Container).scale.set(planetScale);
 
         this.placeSprite(x, y, planet2);
+        
+        // Create gravity field for planet
+        applyGravityField(this.grid, x, y, 35, 0.5);
+        
         break;
       }
     }
@@ -370,6 +383,10 @@ export class Engine {
         });
 
         this.placeSprite(x, y, asteroid);
+        
+        // Create weak gravity field for asteroid
+        applyGravityField(this.grid, x, y, 10, 0.1);
+        
         placed++;
       }
     }
@@ -392,6 +409,10 @@ export class Engine {
           (blackHole.getDisplay() as Sprite).scale.set(blackHoleScale);
 
           this.placeSprite(x, y, blackHole);
+          
+          // Create stronger gravity field for black hole
+          applyGravityField(this.grid, x, y, 30, 1.0);
+          
           blackHolesPlaced++;
         }
       }
@@ -461,6 +482,7 @@ export class Engine {
     
     if (!this.showGrid) return; // Only draw when grid is visible
     
+    // Draw occupied cells
     for (let y = 0; y < this.GRID_HEIGHT; y++) {
       for (let x = 0; x < this.GRID_WIDTH; x++) {
         const cell = this.grid[y][x];
@@ -476,6 +498,39 @@ export class Engine {
     }
     
     this.highlightGraphic.fill({ color: 0xff8800, alpha: 0.3 });
+    
+    // Draw gravity radius circles for objects with gravity
+    for (let y = 0; y < this.GRID_HEIGHT; y++) {
+      for (let x = 0; x < this.GRID_WIDTH; x++) {
+        const cell = this.grid[y][x];
+        // Only draw for center cells to avoid duplicates
+        if (cell.sprite && (!cell.centerX || (cell.centerX === x && cell.centerY === y))) {
+          const sprite = cell.sprite;
+          const worldPos = this.gridToWorld(x, y);
+          
+          // Determine gravity radius based on sprite type
+          let gravityRadius = 0;
+          
+          if (sprite.type === "Planet") {
+            gravityRadius = 35; // tiles
+          } else if (sprite.type === "Black Hole") {
+            gravityRadius = 30; // tiles
+          } else if (sprite.type === "Asteroid") {
+            gravityRadius = 10; // tiles
+          }
+          
+          if (gravityRadius > 0) {
+            // Draw gravity radius circle (outer, lighter green)
+            this.highlightGraphic.circle(worldPos.x, worldPos.y, gravityRadius * this.TILE_SIZE);
+            this.highlightGraphic.stroke({ width: 3, color: 0x00ff00, alpha: 0.4 });
+            
+            // Draw physical radius circle (inner, brighter green)
+            this.highlightGraphic.circle(worldPos.x, worldPos.y, sprite.radius * this.TILE_SIZE);
+            this.highlightGraphic.stroke({ width: 3, color: 0x00ff00, alpha: 0.9 });
+          }
+        }
+      }
+    }
   }
 
   start() {
@@ -525,12 +580,11 @@ export class Engine {
                 this.dragStart.x = e.clientX - this.world.x;
                 this.dragStart.y = e.clientY - this.world.y;
               } else {
-                // Start dragging a sprite (use center position)
-                this.isDraggingSprite = true;
-                this.draggedSpriteGridPos = { x: centerX, y: centerY };
-                this.previewSprite = sprite.getDisplay() as Sprite;
-                this.previewSprite.alpha = 0.7;
-                this.soundManager.play('pickup');
+                // Start launch mode for non-immutable sprites (bunnies, turrets)
+                this.isLaunching = true;
+                this.launchStartPos = { x: e.clientX, y: e.clientY };
+                this.launchSprite = sprite;
+                console.log(`Click and drag to launch ${sprite.name}`);
               }
             } else {
               // Start panning
@@ -554,7 +608,24 @@ export class Engine {
     });
 
     canvas.addEventListener("mouseup", (e: MouseEvent) => {
-      if (this.isDraggingFromToolbar && this.previewSprite && this.selectedTexture) {
+      if (this.isLaunching && this.launchStartPos && this.launchSprite) {
+        // Calculate launch velocity based on drag distance
+        const dx = this.launchStartPos.x - e.clientX;
+        const dy = this.launchStartPos.y - e.clientY;
+        
+        // Scale factor for launch velocity (increased for faster projectiles)
+        const velocityScale = 0.1;
+        this.launchSprite.vx = dx * velocityScale;
+        this.launchSprite.vy = dy * velocityScale;
+        
+        console.log(`Launched ${this.launchSprite.name} with velocity (${this.launchSprite.vx.toFixed(2)}, ${this.launchSprite.vy.toFixed(2)})`);
+        
+        // Reset launch state and clear aimer
+        this.isLaunching = false;
+        this.launchStartPos = null;
+        this.launchSprite = null;
+        this.aimerGraphics.clear();
+      } else if (this.isDraggingFromToolbar && this.previewSprite && this.selectedTexture) {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
 
         if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
@@ -585,43 +656,10 @@ export class Engine {
         this.previewSprite = null;
         this.highlightGraphic.clear();
         this.selectedTexture = null;
-      } else if (this.isDraggingSprite && this.draggedSpriteGridPos && this.previewSprite) {
-        if (this.isOverTrash) {
-          console.log(`Deleted sprite from (${this.draggedSpriteGridPos.x}, ${this.draggedSpriteGridPos.y})`);
-          this.removeSprite(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
-          this.soundManager.play('trash');
-          this.previewSprite = null;
-        } else {
-          const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
-
-          if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
-            if (gridX === this.draggedSpriteGridPos.x && gridY === this.draggedSpriteGridPos.y) {
-              this.previewSprite.alpha = 1;
-            } else {
-              const success = this.moveSprite(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y, gridX, gridY);
-              if (!success) {
-                this.soundManager.play('invalidPlacement');
-                const worldPos = this.gridToWorld(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
-                this.previewSprite.position.set(worldPos.x, worldPos.y);
-              }
-              this.previewSprite.alpha = 1;
-            }
-          } else {
-            const worldPos = this.gridToWorld(this.draggedSpriteGridPos.x, this.draggedSpriteGridPos.y);
-            this.previewSprite.position.set(worldPos.x, worldPos.y);
-            this.previewSprite.alpha = 1;
-          }
-        }
-
-        this.highlightGraphic.clear();
-        this.draggedSpriteGridPos = null;
-        this.previewSprite = null;
       }
 
       this.isDraggingFromToolbar = false;
-      this.isDraggingSprite = false;
       this.isDragging = false;
-      this.isOverTrash = false;
     });
 
     canvas.addEventListener("mousemove", (e: MouseEvent) => {
@@ -639,57 +677,9 @@ export class Engine {
           this.highlightGraphic.rect(gridX * this.TILE_SIZE, gridY * this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE);
           this.highlightGraphic.fill({ color, alpha: 0.3 });
         }
-      } else if (this.isDraggingSprite && this.previewSprite && this.draggedSpriteGridPos) {
-        const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
-
-        const trashBounds = {
-          x: this.toolbar.x + 220,
-          y: this.toolbar.y + 5,
-          width: 80,
-          height: 80
-        };
-
-        this.isOverTrash =
-          e.clientX >= trashBounds.x &&
-          e.clientX <= trashBounds.x + trashBounds.width &&
-          e.clientY >= trashBounds.y &&
-          e.clientY <= trashBounds.y + trashBounds.height;
-
-        if (this.isOverTrash) {
-          this.highlightGraphic.clear();
-          this.trashCan.clear();
-          this.trashCan.rect(0, 0, 80, 80);
-          this.trashCan.fill({ color: 0xff0000, alpha: 0.9 });
-          this.trashCan.stroke({ width: 3, color: 0xffff00 });
-          this.trashCan.position.set(220, 5);
-        } else {
-          this.trashCan.clear();
-          this.trashCan.rect(0, 0, 80, 80);
-          this.trashCan.fill({ color: 0x880000, alpha: 0.8 });
-          this.trashCan.stroke({ width: 2, color: 0xff0000 });
-          this.trashCan.position.set(220, 5);
-
-          if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
-            const worldPos = this.gridToWorld(gridX, gridY);
-            this.previewSprite.position.set(worldPos.x, worldPos.y);
-
-            const cell = this.grid[this.draggedSpriteGridPos.y][this.draggedSpriteGridPos.x];
-            if (cell.sprite) {
-              const radius = cell.sprite.radius;
-              this.highlightGraphic.clear();
-              const canPlace = this.canPlaceInRadius(gridX, gridY, radius);
-              const color = canPlace ? 0x00ff00 : 0xff0000;
-
-              const cells = this.getCellsInRadius(gridX, gridY, radius);
-              for (const cellPos of cells) {
-                if (cellPos.x >= 0 && cellPos.x < this.GRID_WIDTH && cellPos.y >= 0 && cellPos.y < this.GRID_HEIGHT) {
-                  this.highlightGraphic.rect(cellPos.x * this.TILE_SIZE, cellPos.y * this.TILE_SIZE, this.TILE_SIZE, this.TILE_SIZE);
-                  this.highlightGraphic.fill({ color, alpha: 0.3 });
-                }
-              }
-            }
-          }
-        }
+      } else if (this.isLaunching && this.launchStartPos && this.launchSprite) {
+        // Draw aimer trajectory
+        this.drawTrajectory(e.clientX, e.clientY);
       } else if (this.isDragging) {
         this.world.x = e.clientX - this.dragStart.x;
         this.world.y = e.clientY - this.dragStart.y;
@@ -722,7 +712,7 @@ export class Engine {
 
     // click -> grid conversion example
     canvas.addEventListener("click", (e: MouseEvent) => {
-      if (!this.isDraggingFromToolbar && !this.isDraggingSprite) {
+      if (!this.isDraggingFromToolbar) {
         const { gridX, gridY } = this.screenToGrid(e.clientX, e.clientY);
         if (
           gridX >= 0 &&
@@ -770,7 +760,7 @@ export class Engine {
       
       // Update grid toggle button position
       if (this.gridToggleButton) {
-        this.gridToggleButton.position.set(this.app.screen.width - 130, 10);
+        this.gridToggleButton.position.set(this.app.screen.width - 170, 10);
       }
     }
 
@@ -819,7 +809,152 @@ export class Engine {
         const cell = this.grid[y][x];
         // Only update if this is the center cell (has the sprite reference)
         if (cell.sprite && (!cell.centerX || (cell.centerX === x && cell.centerY === y))) {
-          cell.sprite.update(time.deltaTime);
+          const sprite = cell.sprite;
+          
+          // For moving sprites (with velocity), get gravity from current world position
+          if (sprite.vx !== 0 || sprite.vy !== 0) {
+            const worldPos = sprite.getDisplay().position;
+            const currentGridX = Math.floor(worldPos.x / this.TILE_SIZE);
+            const currentGridY = Math.floor(worldPos.y / this.TILE_SIZE);
+            
+            let ax = 0;
+            let ay = 0;
+            if (currentGridX >= 0 && currentGridX < this.GRID_WIDTH && 
+                currentGridY >= 0 && currentGridY < this.GRID_HEIGHT) {
+              ax = this.grid[currentGridY][currentGridX].gravity.ax;
+              ay = this.grid[currentGridY][currentGridX].gravity.ay;
+            }
+            
+            sprite.update(time.deltaTime, ax, ay);
+            
+            // Check for collision with immutable objects
+            // Use worldPos already declared above
+            let collision = false;
+            
+            // Check all grid cells for immutable sprites
+            for (let checkY = 0; checkY < this.GRID_HEIGHT && !collision; checkY++) {
+              for (let checkX = 0; checkX < this.GRID_WIDTH && !collision; checkX++) {
+                const checkCell = this.grid[checkY][checkX];
+                // Only check center cells with immutable sprites
+                if (checkCell.sprite && checkCell.sprite.immutable && 
+                    (!checkCell.centerX || (checkCell.centerX === checkX && checkCell.centerY === checkY))) {
+                  const targetSprite = checkCell.sprite;
+                  const targetPos = targetSprite.getDisplay().position;
+                  
+                  // Calculate distance between sprites
+                  const dx = worldPos.x - targetPos.x;
+                  const dy = worldPos.y - targetPos.y;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  
+                  // Check if moving sprite is within target's radius
+                  const collisionRadius = targetSprite.radius * this.TILE_SIZE;
+                  if (distance < collisionRadius) {
+                    collision = true;
+                    
+                    // Create explosion at collision point
+                    this.createExplosion(worldPos.x, worldPos.y, 1.0);
+                    this.soundManager.play('explosion');
+                    
+                    // Apply damage to the target (100 damage from bunny/turret projectile)
+                    // Skip damage for black holes - they are invulnerable
+                    let targetDestroyed = false;
+                    if (targetSprite.name !== "Black Hole") {
+                      targetDestroyed = targetSprite.takeDamage(100);
+                    }
+                    
+                    // Remove the target if health reached 0
+                    if (targetDestroyed) {
+                      // Find the target's grid position
+                      const targetCells = this.getCellsInRadius(checkX, checkY, targetSprite.radius);
+                      for (const targetCell of targetCells) {
+                        if (targetCell.x >= 0 && targetCell.x < this.GRID_WIDTH && 
+                            targetCell.y >= 0 && targetCell.y < this.GRID_HEIGHT) {
+                          const cell = this.grid[targetCell.y][targetCell.x];
+                          // Only clear if this cell belongs to the target sprite
+                          if (cell.centerX === checkX && cell.centerY === checkY) {
+                            this.grid[targetCell.y][targetCell.x].occupied = false;
+                            this.grid[targetCell.y][targetCell.x].sprite = null;
+                            this.grid[targetCell.y][targetCell.x].centerX = undefined;
+                            this.grid[targetCell.y][targetCell.x].centerY = undefined;
+                          }
+                        }
+                      }
+                      this.world.removeChild(targetSprite.getDisplay());
+                      
+                      // Remove from planets array if it was a planet
+                      const planetIndex = this.planets.indexOf(targetSprite as any);
+                      if (planetIndex > -1) {
+                        this.planets.splice(planetIndex, 1);
+                      }
+                      
+                      console.log(`${targetSprite.name} destroyed!`);
+                    } else {
+                      console.log(`${targetSprite.name} took 100 damage. Health: ${targetSprite.health}/${targetSprite.maxHealth}`);
+                    }
+                    
+                    // Remove the moving sprite (projectile) - only clear cells that belong to this sprite
+                    const oldCells = this.getCellsInRadius(x, y, sprite.radius);
+                    for (const oldCell of oldCells) {
+                      if (oldCell.x >= 0 && oldCell.x < this.GRID_WIDTH && 
+                          oldCell.y >= 0 && oldCell.y < this.GRID_HEIGHT) {
+                        const cell = this.grid[oldCell.y][oldCell.x];
+                        // Only clear if this cell belongs to the moving sprite (not to an immutable object)
+                        if (cell.centerX === x && cell.centerY === y) {
+                          this.grid[oldCell.y][oldCell.x].occupied = false;
+                          this.grid[oldCell.y][oldCell.x].sprite = null;
+                          this.grid[oldCell.y][oldCell.x].centerX = undefined;
+                          this.grid[oldCell.y][oldCell.x].centerY = undefined;
+                        }
+                      }
+                    }
+                    this.world.removeChild(sprite.getDisplay());
+                    this.needsOccupiedCellsRedraw = true;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Only update grid position if no collision occurred
+            if (!collision) {
+              // Update grid position if sprite has moved to a new cell
+              if (currentGridX !== x || currentGridY !== y) {
+                // Clear old position
+                const oldCells = this.getCellsInRadius(x, y, sprite.radius);
+                for (const oldCell of oldCells) {
+                  if (oldCell.x >= 0 && oldCell.x < this.GRID_WIDTH && 
+                      oldCell.y >= 0 && oldCell.y < this.GRID_HEIGHT) {
+                    this.grid[oldCell.y][oldCell.x].occupied = false;
+                    this.grid[oldCell.y][oldCell.x].sprite = null;
+                    this.grid[oldCell.y][oldCell.x].centerX = undefined;
+                    this.grid[oldCell.y][oldCell.x].centerY = undefined;
+                  }
+                }
+                
+                // Set new position (only if still in bounds)
+                if (currentGridX >= 0 && currentGridX < this.GRID_WIDTH && 
+                    currentGridY >= 0 && currentGridY < this.GRID_HEIGHT) {
+                  const newCells = this.getCellsInRadius(currentGridX, currentGridY, sprite.radius);
+                  for (const newCell of newCells) {
+                    if (newCell.x >= 0 && newCell.x < this.GRID_WIDTH && 
+                        newCell.y >= 0 && newCell.y < this.GRID_HEIGHT) {
+                      this.grid[newCell.y][newCell.x].occupied = true;
+                      this.grid[newCell.y][newCell.x].centerX = currentGridX;
+                      this.grid[newCell.y][newCell.x].centerY = currentGridY;
+                      // Only add sprite reference to the center cell
+                      if (newCell.x === currentGridX && newCell.y === currentGridY) {
+                        this.grid[newCell.y][newCell.x].sprite = sprite;
+                      }
+                    }
+                  }
+                  this.needsOccupiedCellsRedraw = true;
+                }
+              }
+            }
+          } else {
+            // Static sprites (no velocity) - don't apply gravity, just update
+            sprite.update(time.deltaTime, 0, 0);
+          }
         }
       }
     }
@@ -920,6 +1055,18 @@ export class Engine {
     // Track planets
     if (sprite instanceof PlanetSprite) {
       this.planets.push(sprite);
+      // Create gravity field for planet
+      applyGravityField(this.grid, gridX, gridY, 35, 0.5);
+    }
+    
+    // Create gravity field for black holes
+    if (sprite.type === "blackhole") {
+      applyGravityField(this.grid, gridX, gridY, 30, 1.0);
+    }
+    
+    // Create gravity field for asteroids
+    if (sprite.type === "Asteroid") {
+      applyGravityField(this.grid, gridX, gridY, 10, 0.1);
     }
 
     // Mark that occupied cells need redrawing
@@ -1053,5 +1200,87 @@ export class Engine {
     );
     this.world.addChild(explosion.getDisplay());
     this.explosions.push(explosion);
+  }
+
+  /**
+   * Draw trajectory prediction when launching a sprite
+   */
+  private drawTrajectory(mouseX: number, mouseY: number) {
+    if (!this.launchStartPos || !this.launchSprite) return;
+
+    this.aimerGraphics.clear();
+
+    // Calculate initial velocity
+    const dx = this.launchStartPos.x - mouseX;
+    const dy = this.launchStartPos.y - mouseY;
+    const velocityScale = 0.1;
+    let vx = dx * velocityScale;
+    let vy = dy * velocityScale;
+
+    // Get sprite's current grid position
+    const spriteWorldPos = this.launchSprite.getDisplay().position;
+    let posX = spriteWorldPos.x;
+    let posY = spriteWorldPos.y;
+
+    // Simulate trajectory
+    const maxSteps = 200;
+    const deltaTime = 1.0; // Simulation delta
+    const points: { x: number; y: number }[] = [{ x: posX, y: posY }];
+
+    for (let i = 0; i < maxSteps; i++) {
+      // Get grid position
+      const gridX = Math.floor(posX / this.TILE_SIZE);
+      const gridY = Math.floor(posY / this.TILE_SIZE);
+
+      // Get gravity at this position
+      let ax = 0;
+      let ay = 0;
+      if (gridX >= 0 && gridX < this.GRID_WIDTH && gridY >= 0 && gridY < this.GRID_HEIGHT) {
+        ax = this.grid[gridY][gridX].gravity.ax;
+        ay = this.grid[gridY][gridX].gravity.ay;
+      }
+
+      // Apply gravity
+      vx += ax * deltaTime;
+      vy += ay * deltaTime;
+
+      // Clamp velocity
+      const MAX_VELOCITY = 8;
+      const speed = Math.sqrt(vx * vx + vy * vy);
+      if (speed > MAX_VELOCITY) {
+        vx = (vx / speed) * MAX_VELOCITY;
+        vy = (vy / speed) * MAX_VELOCITY;
+      }
+
+      // Update position
+      posX += vx * deltaTime;
+      posY += vy * deltaTime;
+
+      // Stop if out of bounds
+      if (posX < 0 || posX > this.GRID_WIDTH * this.TILE_SIZE || 
+          posY < 0 || posY > this.GRID_HEIGHT * this.TILE_SIZE) {
+        break;
+      }
+
+      points.push({ x: posX, y: posY });
+    }
+
+    // Draw trajectory line with dots
+    this.aimerGraphics.moveTo(points[0].x, points[0].y);
+    this.aimerGraphics.lineTo(points[0].x, points[0].y);
+    this.aimerGraphics.stroke({ width: 2, color: 0x00ffff, alpha: 0.8 });
+
+    for (let i = 0; i < points.length; i += 5) {
+      const point = points[i];
+      this.aimerGraphics.circle(point.x, point.y, 2);
+      this.aimerGraphics.fill({ color: 0x00ffff, alpha: 0.6 });
+    }
+
+    // Draw line from sprite to mouse
+    const { gridX: mouseGridX, gridY: mouseGridY } = this.screenToGrid(mouseX, mouseY);
+    const mouseWorld = this.gridToWorld(mouseGridX, mouseGridY);
+    this.aimerGraphics.moveTo(spriteWorldPos.x, spriteWorldPos.y);
+    this.aimerGraphics.lineTo(mouseWorld.x, mouseWorld.y);
+    this.aimerGraphics.stroke({ width: 1, color: 0xffff00, alpha: 0.5 });
   }
 }
